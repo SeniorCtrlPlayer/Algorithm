@@ -8,12 +8,16 @@ def r_p(array):
     :param array: 一维数组
     :return: 挑选的索引
     """
-    p = random.randint(1, sum(array))
-    sum_p = 0
-    for i, x in enumerate(array):
-        sum_p += x
-        if sum_p >= p:
-            return i
+    sum_array = int(sum(array))
+    if sum_array != 0:
+        p = random.randint(1, sum_array)
+        sum_p = 0
+        for i, x in enumerate(array):
+            sum_p += x
+            if sum_p >= p:
+                return i
+    else:
+        return random.randint(0, len(array)-1)
 
 
 def r_p_test():
@@ -30,6 +34,12 @@ def r_p_test():
 
 
 def transfer(color, alpha):
+    """
+    透明度越大越亮
+    :param color: basic颜色值
+    :param alpha: 透明度
+    :return:
+    """
     r,g,b = color
     return (r*alpha, g*alpha, b*alpha)
 

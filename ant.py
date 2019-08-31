@@ -69,7 +69,7 @@ class Window:
     def update(self, map):
         index = np.array(np.where(map >= 0)).T
         for x, y in index:
-            pygame.draw.rect(self.screen, transfer(self.rect_color, 1-map[x][y]/208),
+            pygame.draw.rect(self.screen, transfer(self.rect_color, 1-(map[x][y]/255)),
                              (x * win.d1, y * win.d1, self.d, self.d), 0)
         pass
 
@@ -89,7 +89,13 @@ class Ant:
         self.y = j
         self.a_color = a_color
 
-    def move(self):
+    def move(self, map):
+        before = self.live
+
+        # 蚂蚁携带信息素衰变值
+        self.live -= 2
+        map[self.x+1, self.y+1] += (before-self.live)
+
         pass
 
 
@@ -97,9 +103,10 @@ class map:
 
     def __init__(self, size, info=None):
         self.size = size
-        if info is not None:
+        if info is None:
             self.info = np.zeros((size, size))
-        self.info = info
+        else:
+            self.info = info
         # 解决矩阵边界点没有九宫格的问题
         # (i) of input = (i+1) of info
         self.info = np.pad(self.info, (1, 1), 'constant')
@@ -143,8 +150,8 @@ if __name__ == '__main__':
     ant1 = Ant(31 // 2, 31 // 2, 31)
 
     # i*d1,j*d1
-    infomap = np.array([int(x * 2 / 1920 * 208) for x in range(31 * 31)]).reshape((31, 31))
-    info = map(31, infomap)
+    # infomap = np.array([int(x * 2 / 1920 * 255) for x in range(31 * 31)]).reshape((31, 31))
+    info = map(31)
     # print(info.info)
 
     win.refresh_line()
@@ -154,7 +161,11 @@ if __name__ == '__main__':
                 sys.exit()
         # win.refresh()
         win.update(info.get_info())
+
+        # 一只蚂蚁的移动
         pygame.draw.circle(win.screen, ant1.a_color, (ant1.x * win.d1 + 10, ant1.y * win.d1 + 10), 6, 6)
         ant1.x, ant1.y = info.get_next(ant1.x, ant1.y)
+        ant1.move(info.info)
+
         clock.tick(fps)
         pygame.display.update()
