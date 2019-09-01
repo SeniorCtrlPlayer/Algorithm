@@ -1,9 +1,10 @@
 # -*- coding:utf-8 -*-
-import sys
+import sys, math, copy
 import pygame
 from pygame.locals import QUIT, KEYDOWN
 import numpy as np
-from tools import r_p, transfer
+import random
+from tools import r_p, transfer, index_tot_delta
 
 
 # 分辨率长为 格子数*格子宽度 + 光带数*光带宽度
@@ -69,14 +70,13 @@ class Window:
     def update(self, map):
         index = np.array(np.where(map >= 0)).T
         for x, y in index:
-            pygame.draw.rect(self.screen, transfer(self.rect_color, 1-(map[x][y]/255)),
+            pygame.draw.rect(self.screen, transfer(self.rect_color, max(1 - (map[x][y] / 255), 0)),
                              (x * win.d1, y * win.d1, self.d, self.d), 0)
-        pass
 
 
 class Ant:
 
-    def __init__(self, i, j, live, a_color=(224, 224, 224)):
+    def __init__(self, i, j, live, info_d, a_color=(224, 224, 224)):
         """
         蚂蚁类
         :param i: 虚拟横坐标
@@ -84,19 +84,59 @@ class Ant:
         :param live: 最大生命数，每走一格损失一条生命
         :param a_color: 蚂蚁颜色
         """
+        self.maxlive = live
         self.live = live
+        self.info_d = info_d
         self.x = i
         self.y = j
         self.a_color = a_color
+        # 路径表
+        self.last = []
+        temp = 4
+        while temp == 4:
+            temp = random.randint(0, 8)
+        self.last.append(temp)
+        self.flag = False
 
-    def move(self, map):
-        before = self.live
-
-        # 蚂蚁携带信息素衰变值
-        self.live -= 2
-        map[self.x+1, self.y+1] += (before-self.live)
-
-        pass
+    def move(self, info):
+        if self.flag:
+            self.info_d = self.info_d * 100
+            # 找到食物，按原路返回
+            try:
+                next = self.last.pop()
+                # print("回家路上",self.x,self.y,next)
+            except:
+                self.info_d = 20
+                self.flag = False
+                return None, None
+        else:
+            if self.live < 0:
+                # print("生命值用完")
+                return None, None
+            # self.x, self.y, last = info.get_next(self.x, self.y, self.last[-1])
+            next_list = info.info[self.x:self.x + 3, self.y:self.y + 3].flatten()
+            # 禁止选择上一个位置
+            last_index = self.last[-1]
+            next_list[last_index] = 0
+            # 禁止选择当前位置
+            next_list[4] = 0
+            sum_array = sum(next_list)
+            next = None
+            if sum_array != 0:
+                if random.randint(1, self.maxlive) < self.maxlive - self.live:
+                    next = r_p(next_list, sum_array)
+                else:
+                    next = last_index
+            while next in [4, last_index, None]:
+                next = random.randint(0, len(next_list) - 1)
+            self.last.append(8 - next)
+            # 蚂蚁携带信息素衰变值
+            self.live -= self.info_d
+        dx, dy = index_tot_delta(next)
+        self.x += dx
+        self.y += dy
+        info.info[self.x + 1, self.y + 1] += self.info_d
+        return self.x, self.y
 
 
 class map:
@@ -104,68 +144,82 @@ class map:
     def __init__(self, size, info=None):
         self.size = size
         if info is None:
-            self.info = np.zeros((size, size))
+            self.info = np.ones((size, size))
         else:
             self.info = info
         # 解决矩阵边界点没有九宫格的问题
         # (i) of input = (i+1) of info
         self.info = np.pad(self.info, (1, 1), 'constant')
-
-    def get_next(self, i, j):
+        self.threshold = 25
         """
         得到i,j为中心的九宫格的信息素浓度
         :param i: 中心点x
         :param j: 中心点y
         :return: 下一个点的坐标
         """
-        # 因为矩阵大小为(size+1)x(size+1)，所以i,j对应的是map中的i+1，j+1
-        next_list = self.info[i:i + 3, j:j + 3].flatten()
-        # 禁止选择九宫格中心
-        next_list[4] = 0
-        next = r_p(next_list)
-        """
-        [0 1 2]
-        [3 4 5]
-        [6 7 8]
-        当左上角为(0,0)时
-            x = index // 3
-            y = index % 3
-        当中心点为(0,0)时
-            x = index // 3 - 1
-            y = index % 3 - 1
-        """
-        x = i + next // 3 - 1
-        y = j + next % 3 - 1
-
-        return x, y
 
     def get_info(self):
+        """
+        信息素更新
+        如果浓度大于threshold，则衰减5%，若小于threshold，则衰减
+        :return:
+        """
+        temp = self.info - self.info // 5
+        temp1 = np.select([temp > 0], [temp])
+        self.info = np.select([self.info >= self.threshold, self.info > 0],
+                              [self.info - self.info // self.threshold, self.info - 1])
         return self.info[1:self.size + 1, 1:self.size + 1]
 
 
+class Ant_Group:
+    def __init__(self, count, basic_ant):
+        self.count = count
+        self.basic_ant = basic_ant
+        self.group = []
+
+    def draw(self, win):
+        for ant in self.group:
+            pygame.draw.circle(win.screen, ant.a_color, (ant.x * win.d1 + 10, ant.y * win.d1 + 10), 6, 6)
+            # info.get_next(ant1)
+            x, y = ant.move(info)
+            if (x == foodx and y == foody):
+                ant.flag = True
+                # print("找到食物")
+            if x == None:
+                # print("找到食物")
+                self.group.remove(ant)
+                self.group.append(copy.deepcopy(self.basic_ant))
+
+
 if __name__ == '__main__':
-    fps = 30
+    fps = 2
     clock = pygame.time.Clock()
     win = Window(31, 31, 20, 2)
-    ant1 = Ant(31 // 2, 31 // 2, 31)
+    maxlive = int(10 * math.sqrt(2)) * 20
+    basic_ant = Ant(31 // 2, 31 // 2, maxlive, 20)
+    group = Ant_Group(2, basic_ant)
 
     # i*d1,j*d1
-    # infomap = np.array([int(x * 2 / 1920 * 255) for x in range(31 * 31)]).reshape((31, 31))
     info = map(31)
-    # print(info.info)
+    foodx = 25
+    foody = 15
 
     win.refresh_line()
+    i = 5
     while True:
         for event in pygame.event.get():
             if event.type in (QUIT, KEYDOWN):
                 sys.exit()
+        if len(group.group) < group.count and i > 0:
+            group.group.append(copy.deepcopy(group.basic_ant))
+            i = random.randint(3, 9)
+        else:
+            i -= 1
         # win.refresh()
         win.update(info.get_info())
+        # 多只蚂蚁移动
+        group.draw(win)
 
-        # 一只蚂蚁的移动
-        pygame.draw.circle(win.screen, ant1.a_color, (ant1.x * win.d1 + 10, ant1.y * win.d1 + 10), 6, 6)
-        ant1.x, ant1.y = info.get_next(ant1.x, ant1.y)
-        ant1.move(info.info)
-
+        pygame.draw.rect(win.screen, (224, 0, 0), (foodx * win.d1, foody * win.d1, win.d, win.d))
         clock.tick(fps)
         pygame.display.update()
